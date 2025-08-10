@@ -1,8 +1,7 @@
 # src/zenodo_uploader/__init__.py
 
-# This makes the 'upload' function available directly from the package,
-# so users can do `from zenodo_uploader import upload`
-# instead of the more verbose `from zenodo_uploader.cli import upload`.
-# It defines the public API of your package.
+# This makes the core functions available directly from the package,
+# defining the public API of your package.
+# Users can now do `from zenodo_uploader import upload, list_depositions, update_deposition`.
 
-from .cli import upload
+from .cli import upload, list_depositions, update_deposition

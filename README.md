@@ -74,24 +74,18 @@ Creates the `.zenodo.toml` configuration file for you.
 ```bash
 # Run the interactive setup wizard
 zenodo-upload configure
-
-# Create the config file in the current directory instead of the home directory
-zenodo-upload configure --local
 ```
 
 ### `list`: Listing Your Records
 Lists all depositions (drafts and published) in your account.
 
 ```bash
-# List records from the production site
-zenodo-upload list
-
 # List records from the sandbox environment
 zenodo-upload list --sandbox
 ```
 
 ### `upload`: Creating a New Record
-Creates a new deposition and uploads files. By default, it creates a draft. Use `--publish` to publish immediately.
+Creates a new deposition and uploads files. By default, it creates a draft.
 
 ```bash
 # Create a new draft on the sandbox using values from your config file
@@ -100,73 +94,78 @@ zenodo-upload upload \
 --title "My Research Project Results" \
 --description "This record contains the final report and raw data." \
 --sandbox
-
-# Create and immediately publish a record on the production site
-zenodo-upload upload \
---file-paths ./final_paper.pdf \
---title "Final Published Paper" \
---description "Official version of the paper." \
---publish
 ```
 
 ### `update`: Modifying a Draft
-Updates an existing draft deposition by adding files or changing metadata. This command cannot be used on already-published records.
+Updates an existing draft deposition.
 
 ```bash
 # Add a new file to an existing draft in the sandbox
 zenodo-upload update 1234567 --add-file ./new_figure.png --sandbox
-
-# Update the title of an existing draft
-zenodo-upload update 1234567 --title "A Better Title for My Project"
 ```
 
-For a full list of options for any subcommand, use `--help`, for example:
-```bash
-zenodo-upload upload --help
-```
+For a full list of options for any subcommand, use `--help`, for example: `zenodo-upload upload --help`.
 
 ## As a Python Library
 
-You can import and use the core `upload` function for creating new depositions programmatically.
+You can import and use the core functions directly in your Python scripts. The package exposes `upload`, `list_depositions`, and `update_deposition`.
+
+### Example 1: Creating a New Upload
 
 ```python
 from zenodo_uploader import upload
-import os
 
-# Create dummy files for the example
-os.makedirs("data", exist_ok=True)
-with open("data/report.txt", "w") as f:
-    f.write("This is a test report.")
-
-# Your Zenodo sandbox token (can also be loaded from a config file)
 MY_TOKEN = "PASTE_YOUR_SANDBOX_TOKEN_HERE"
-MY_FILES = ["data/report.txt"]
 
 metadata = {
     "title": "My Automated Dataset",
     "author": "Script, Python",
     "description": "This upload was performed programmatically.",
-    "affiliation": "Automation University",
-    "keywords": ["api", "python", "automation"],
-    "version": "1.0.1",
-    "upload_type": "dataset"
 }
 
-try:
-    response_data = upload(
-        token=MY_TOKEN,
-        file_paths=MY_FILES,
-        metadata=metadata,
-        sandbox=True,
-        publish=False  # Creates a draft
+# This creates a new draft in the sandbox
+response_data = upload(
+    token=MY_TOKEN,
+    file_paths=["./data/report.txt"],
+    metadata=metadata,
+    sandbox=True,
+    publish=False
+)
+print(f"Draft created: {response_data.get('links', {}).get('latest_draft_html')}")
+```
+
+### Example 2: Listing and Updating a Draft
+
+```python
+from zenodo_uploader import list_depositions, update_deposition
+
+TOKEN = "YOUR_SANDBOX_TOKEN_HERE"
+
+# First, list depositions to find a draft
+print("--- Listing depositions ---")
+all_deps = list_depositions(token=TOKEN, sandbox=True)
+drafts = [d for d in all_deps if not d['submitted']]
+
+if not drafts:
+    print("No drafts found to update.")
+else:
+    draft_id = drafts[0]['id']
+    print(f"\n--- Found draft with ID {draft_id}. Updating it... ---")
+    
+    # Create a new file to add
+    with open("update_log.txt", "w") as f:
+        f.write("This file was added during an update.")
+        
+    # Call the update function to add the file and change the description
+    updated_dep = update_deposition(
+        token=TOKEN,
+        deposition_id=draft_id,
+        files_to_add=["update_log.txt"],
+        metadata={"description": "Description updated programmatically."},
+        sandbox=True
     )
-    print("\n--- Library Call Successful ---")
-    print(f"Draft created with ID: {response_data.get('id')}")
-    print(f"Review it here: {response_data.get('links', {}).get('latest_draft_html')}")
-
-except SystemExit as e:
-    print(f"\nUpload failed with exit code: {e.code}")
-
+    print("\n--- Update Successful ---")
+    print(f"Review the updated draft at: {updated_dep.get('links', {}).get('latest_draft_html')}")
 ```
 
 ## License

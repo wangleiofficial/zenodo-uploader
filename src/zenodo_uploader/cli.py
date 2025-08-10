@@ -1,4 +1,4 @@
-# src/zenodo_uploader/cli.py (v2.2 - Final, Complete Code with 'configure' command)
+# src/zenodo_uploader/cli.py
 
 import requests
 import argparse
@@ -48,7 +48,6 @@ def _upload_file_with_progress(session: requests.Session, file_path: str, bucket
     """Uploads a single file to a bucket URL with a progress bar."""
     filename = os.path.basename(file_path)
     file_size = os.path.getsize(file_path)
-    
     try:
         with open(file_path, 'rb') as fp:
             with tqdm.wrapattr(fp, "read", total=file_size, desc=f"   - Uploading {filename}", unit="B", unit_scale=True, unit_divisor=1024) as bar:
@@ -59,49 +58,36 @@ def _upload_file_with_progress(session: requests.Session, file_path: str, bucket
         sys.exit(1)
 
 # =============================================================================
-# 2. SUBCOMMAND HANDLERS
+# 2. CORE LIBRARY FUNCTIONS
 # =============================================================================
 
-def handle_list(args: argparse.Namespace):
-    """Handles the 'list' subcommand."""
-    log.info("Executing 'list' command...")
-    BASE_URL = _get_api_base(args.sandbox)
-    headers = {"Authorization": f"Bearer {args.token}"}
-    
+def list_depositions(token: str, sandbox: bool = False) -> List[Dict[str, Any]]:
+    """Lists all depositions for a user. Returns the raw list of deposition dictionaries."""
+    BASE_URL = _get_api_base(sandbox)
+    headers = {"Authorization": f"Bearer {token}"}
     try:
         r = requests.get(f"{BASE_URL}/deposit/depositions", headers=headers)
         r.raise_for_status()
-        depositions = r.json()
-        
-        if not depositions:
-            log.info("No depositions found.")
-            return
-
-        log.info(f"Found {len(depositions)} depositions:")
-        log.info("-" * 80)
-        log.info(f"{'ID':<12} {'Status':<12} {'DOI':<25} {'Title'}")
-        log.info("-" * 80)
-        for dep in depositions:
-            status = 'published' if dep['submitted'] else 'draft'
-            title = dep.get('metadata', {}).get('title', 'No Title')
-            doi = dep.get('doi', 'N/A')
-            log.info(f"{dep['id']:<12} {status:<12} {doi:<25} {title[:60]}")
-        log.info("-" * 80)
-
+        return r.json()
     except requests.exceptions.RequestException as e:
         log.error(f"✗ ERROR: Failed to list depositions. Reason: {e.response.text if e.response else e}")
         sys.exit(1)
 
-def handle_update(args: argparse.Namespace):
-    """Handles the 'update' subcommand."""
-    log.info(f"Executing 'update' command for deposition ID: {args.deposition_id}...")
-    BASE_URL = _get_api_base(args.sandbox)
+def update_deposition(
+    token: str, 
+    deposition_id: int,
+    metadata: Optional[Dict[str, Any]] = None,
+    files_to_add: Optional[List[str]] = None,
+    sandbox: bool = False
+) -> Dict[str, Any]:
+    """Updates an existing draft deposition. Returns the final deposition dictionary."""
+    BASE_URL = _get_api_base(sandbox)
     session = requests.Session()
-    session.headers.update({"Authorization": f"Bearer {args.token}"})
-    deposition_url = f"{BASE_URL}/deposit/depositions/{args.deposition_id}"
-
+    session.headers.update({"Authorization": f"Bearer {token}"})
+    deposition_url = f"{BASE_URL}/deposit/depositions/{deposition_id}"
+    
     try:
-        log.info("   - Fetching deposition details...")
+        log.info(f"   - Fetching deposition {deposition_id} details...")
         r = session.get(deposition_url)
         r.raise_for_status()
         dep = r.json()
@@ -112,41 +98,49 @@ def handle_update(args: argparse.Namespace):
         
         bucket_url = dep['links']['bucket']
 
-        if args.add_files:
-            log.info(f"\n   - Adding {len(args.add_files)} new file(s)...")
-            for file_path in args.add_files:
+        if files_to_add:
+            log.info(f"\n   - Adding {len(files_to_add)} new file(s)...")
+            for file_path in files_to_add:
                 if not os.path.exists(file_path):
                     log.error(f"   ✗ ERROR: File to add not found: '{file_path}'")
                     continue
                 _upload_file_with_progress(session, file_path, bucket_url)
             log.info("   ✓ New files added successfully.")
         
-        metadata_to_update = {k: v for k, v in vars(args).items() if k in ['title', 'description', 'author'] and v is not None}
-        if metadata_to_update:
+        if metadata:
             log.info("\n   - Updating metadata...")
             current_metadata = dep.get('metadata', {})
-            if 'title' in metadata_to_update: current_metadata['title'] = args.title
-            if 'description' in metadata_to_update: current_metadata['description'] = args.description
-            if 'author' in metadata_to_update: current_metadata['creators'] = [{'name': args.author}]
+            # Simple merge for top-level keys like 'title', 'description', etc.
+            current_metadata.update(metadata)
+            # Special handling for creators if 'author' is provided
+            if 'author' in metadata:
+                current_metadata['creators'] = [{'name': metadata['author']}]
             
             data = {'metadata': current_metadata}
             r_meta = session.put(deposition_url, data=json.dumps(data), headers={"Content-Type": "application/json"})
             r_meta.raise_for_status()
             log.info("   ✓ Metadata updated successfully.")
 
-        log.info(f"\n✅ Update complete. Review your draft at: {dep['links']['latest_draft_html']}")
+        # Fetch the final state
+        r_final = session.get(deposition_url)
+        r_final.raise_for_status()
+        return r_final.json()
 
     except requests.exceptions.RequestException as e:
         log.error(f"✗ ERROR: Update operation failed. Reason: {e.response.text if e.response else e}")
         sys.exit(1)
 
-def handle_upload(args: argparse.Namespace):
-    """Handles the 'upload' subcommand."""
-    log.info("Executing 'upload' command...")
-    BASE_URL = _get_api_base(args.sandbox)
+def upload(token: str, file_paths: List[str], metadata: Dict[str, Any], **kwargs) -> Dict[str, Any]:
+    """Creates a new deposition and uploads files."""
+    sandbox = kwargs.get('sandbox', False)
+    publish = kwargs.get('publish', False)
+
+    env = "sandbox" if sandbox else "production"
+    BASE_URL = _get_api_base(sandbox)
     session = requests.Session()
-    session.headers.update({"Authorization": f"Bearer {args.token}"})
+    session.headers.update({"Authorization": f"Bearer {token}"})
     
+    log.info(f"--- Using {env.upper()} environment ---")
     log.info("1. Creating new deposition record...")
     try:
         r = session.post(f'{BASE_URL}/deposit/depositions', json={})
@@ -160,8 +154,8 @@ def handle_upload(args: argparse.Namespace):
         log.error(f"   ✗ ERROR: Failed to create deposition. Reason: {e.response.text if e.response else e}")
         sys.exit(1)
 
-    log.info(f"\n2. Starting upload of {len(args.file_paths)} files...")
-    for file_path in args.file_paths:
+    log.info(f"\n2. Starting upload of {len(file_paths)} files...")
+    for file_path in file_paths:
         if not os.path.exists(file_path):
             log.error(f"   ✗ ERROR: File not found: '{file_path}'")
             sys.exit(1)
@@ -169,17 +163,23 @@ def handle_upload(args: argparse.Namespace):
     log.info("   ✓ All files uploaded successfully!")
 
     log.info("\n3. Adding metadata...")
-    creator = {'name': args.author}
-    if args.affiliation: creator['affiliation'] = args.affiliation
+    creator = {'name': metadata['author']}
+    if metadata.get('affiliation'):
+        creator['affiliation'] = metadata['affiliation']
+    
     metadata_payload = {'metadata': {
-        'title': args.title, 'upload_type': args.upload_type, 'description': args.description,
-        'creators': [creator], 'keywords': args.keywords or [], 'version': args.version or ''
+        'title': metadata.get('title'), 'upload_type': metadata.get('upload_type', 'dataset'), 
+        'description': metadata.get('description'), 'creators': [creator]
     }}
+    if metadata.get('version'): metadata_payload['metadata']['version'] = metadata.get('version')
+    if metadata.get('keywords'): metadata_payload['metadata']['keywords'] = metadata.get('keywords')
+
     r_meta = session.put(f"{BASE_URL}/deposit/depositions/{deposition_id}", data=json.dumps(metadata_payload), headers={"Content-Type": "application/json"})
     r_meta.raise_for_status()
     log.info("   ✓ Metadata added successfully!")
 
-    if not args.publish:
+    final_data = r_meta.json()
+    if not publish:
         log.info(f"\n✅ Upload complete. Review your draft at: {draft_url}")
     else:
         log.info("\n4. Publishing record...")
@@ -193,9 +193,60 @@ def handle_upload(args: argparse.Namespace):
         except requests.exceptions.RequestException as e:
             log.error(f"   ✗ ERROR: Failed to publish. Reason: {e.response.text if e.response else e}")
             sys.exit(1)
+    
+    return final_data
+
+# =============================================================================
+# 3. SUBCOMMAND HANDLERS
+# =============================================================================
+
+def handle_list(args: argparse.Namespace):
+    """CLI handler for the 'list' subcommand."""
+    log.info("Executing 'list' command...")
+    depositions = list_depositions(token=args.token, sandbox=args.sandbox)
+    if not depositions:
+        log.info("No depositions found.")
+        return
+    log.info(f"Found {len(depositions)} depositions:")
+    log.info("-" * 80)
+    log.info(f"{'ID':<12} {'Status':<12} {'DOI':<25} {'Title'}")
+    log.info("-" * 80)
+    for dep in depositions:
+        status = 'published' if dep['submitted'] else 'draft'
+        title = dep.get('metadata', {}).get('title', 'No Title')
+        doi = dep.get('doi', 'N/A')
+        log.info(f"{dep['id']:<12} {status:<12} {doi:<25} {title[:60]}")
+    log.info("-" * 80)
+
+def handle_update(args: argparse.Namespace):
+    """CLI handler for the 'update' subcommand."""
+    log.info(f"Executing 'update' command for deposition ID: {args.deposition_id}...")
+    metadata_to_update = {
+        k: v for k, v in vars(args).items() 
+        if k in ['title', 'description', 'author'] and v is not None
+    }
+    final_dep = update_deposition(
+        token=args.token,
+        deposition_id=args.deposition_id,
+        files_to_add=args.add_files,
+        metadata=metadata_to_update if metadata_to_update else None,
+        sandbox=args.sandbox
+    )
+    log.info(f"\n✅ Update complete. Review your draft at: {final_dep['links']['latest_draft_html']}")
+
+def handle_upload(args: argparse.Namespace):
+    """CLI handler for the 'upload' subcommand."""
+    log.info("Executing 'upload' command...")
+    metadata = {
+        'title': args.title, 'author': args.author, 'description': args.description,
+        'affiliation': args.affiliation, 'keywords': args.keywords, 'version': args.version,
+        'upload_type': args.upload_type
+    }
+    options = {'publish': args.publish, 'sandbox': args.sandbox}
+    upload(token=args.token, file_paths=args.file_paths, metadata=metadata, **options)
 
 def handle_configure(args: argparse.Namespace):
-    """Handles the interactive configuration setup."""
+    """Handler for the interactive configuration setup."""
     log.info("--- Interactive Configuration Setup ---")
     log.info("This will help you create a .zenodo.toml configuration file.")
 
@@ -249,7 +300,6 @@ def handle_configure(args: argparse.Namespace):
         log.error(f"\n✗ ERROR: Failed to write configuration file. Reason: {e}")
         sys.exit(1)
 
-
 # =============================================================================
 # 4. MAIN CLI ENTRY POINT
 # =============================================================================
@@ -268,12 +318,10 @@ def main():
 
     subparsers = parser.add_subparsers(dest="command", required=True, help="Available commands")
 
-    # --- Parser for the "configure" command ---
     parser_configure = subparsers.add_parser("configure", help="Create or update the .zenodo.toml configuration file interactively.")
     parser_configure.add_argument("--local", action="store_true", help="Create config file in the current directory.")
     parser_configure.set_defaults(func=handle_configure)
 
-    # --- Parser for the "upload" command ---
     parser_upload = subparsers.add_parser("upload", help="Create a new record and upload files.", parents=[common_parser])
     parser_upload.add_argument("--file-paths", required=True, nargs='+', help="One or more paths to the files to upload.")
     parser_upload.add_argument("--title", required=True, help="Title of the upload.")
@@ -286,7 +334,6 @@ def main():
     parser_upload.add_argument("--publish", action='store_true', default=False, help="Publish the record immediately.")
     parser_upload.set_defaults(func=handle_upload)
 
-    # --- Parser for the "update" command ---
     parser_update = subparsers.add_parser("update", help="Update an existing draft deposition.", parents=[common_parser])
     parser_update.add_argument("deposition_id", help="The ID of the Zenodo deposition to update.")
     parser_update.add_argument("--add-file", dest="add_files", nargs='+', help="Add one or more files.")
@@ -295,7 +342,6 @@ def main():
     parser_update.add_argument("--author", help="Update the author.")
     parser_update.set_defaults(func=handle_update)
     
-    # --- Parser for the "list" command ---
     parser_list = subparsers.add_parser("list", help="List your existing depositions.", parents=[common_parser])
     parser_list.set_defaults(func=handle_list)
 
