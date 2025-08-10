@@ -2,7 +2,7 @@
 
 [![PyPI version](https://badge.fury.io/py/zenodo-cli-uploader-wanglei.svg)](https://badge.fury.io/py/zenodo-cli-uploader-wanglei)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-![PyPI - Python Version](https://img.shields.io/pypi/pyversions/zenodo-cli-uploader-wanglei)
+![PyPI - Python Version](https://img.shields.io/pypi/pyversions/zenodo-uploader)
 [![CI/CD Status](https://github.com/wangleiofficial/zenodo-uploader/actions/workflows/publish-to-pypi.yml/badge.svg)](https://github.com/wangleiofficial/zenodo-uploader/actions/workflows/publish-to-pypi.yml)
 
 A flexible and powerful tool to upload files to [Zenodo](https://zenodo.org), available as both a command-line utility and an importable Python library.
@@ -169,5 +169,5 @@ else:
 ```
 
 ## License
-
 This project is licensed under the MIT License.
+
