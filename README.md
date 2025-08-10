@@ -1,6 +1,6 @@
 # Zenodo Command-Line Uploader
 
-[![PyPI version](https://badge.fury.io/py/zenodo-cli-uploader-wanglei.svg)](https://badge.fury.io/py/zenodo-cli-uploader-wanglei)
+[![PyPI version](https://badge.fury.io/py/zenodo-uploader.svg)](https://badge.fury.io/py/zenodo-cli-uploader-wanglei)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 ![PyPI - Python Version](https://img.shields.io/pypi/pyversions/zenodo-uploader)
 [![CI/CD Status](https://github.com/wangleiofficial/zenodo-uploader/actions/workflows/publish-to-pypi.yml/badge.svg)](https://github.com/wangleiofficial/zenodo-uploader/actions/workflows/publish-to-pypi.yml)
