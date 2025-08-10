@@ -7,7 +7,7 @@ build-backend = "setuptools.build_meta"
 [project]
 # The name of your package on PyPI. It must be unique.
 name = "zenodo-uploader"
-version = "0.1.0"
+version = "0.1.1"
 authors = [
   { name="Lei Wang", email="wanglei94@hust.edu.cn" },
 ]
@@ -20,7 +20,7 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
     "Topic :: Scientific/Engineering",
-    "Topic :: System :: Archiving :: Uploader",
+    "Topic :: System :: Archiving",
 ]
 dependencies = [
     "requests",
